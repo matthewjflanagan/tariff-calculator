@@ -1,4 +1,4 @@
-import { useState, useMemo } from "react";
+import { useState, useMemo, useEffect } from "react";
 
 const C = {
   navy:       "#1B2A4A",
@@ -19,27 +19,16 @@ const C = {
   teal:       "#1A5C6B",
 };
 
-// ── RATE BULLETIN ─────────────────────────────────────────────────────────────
-// UPDATE THIS SECTION when rates change. This is the first thing users see.
-const RATE_BULLETIN = {
+const API = "https://tariff-calculator-api-production.up.railway.app";
+
+// ── FALLBACK DATA (used until API loads) ──────────────────────────────────────
+const RATE_BULLETIN_FALLBACK = {
   version: "v2.1",
   lastVerified: "March 19, 2026",
   alerts: [
-    {
-      level: "red",
-      title: "Section 122 Global Baseline: 15%",
-      body: "IEEPA tariffs struck down by Supreme Court on February 20, 2026. Trump invoked Section 122 of the Trade Act of 1974, imposing a 15% flat surcharge on most US imports effective February 22, 2026. Temporary for 150 days, expiring approximately July 24, 2026 unless Congress extends it. USMCA-qualifying goods and Section 232 products are exempt.",
-    },
-    {
-      level: "amber",
-      title: "Section 301 on China and Section 232 Remain in Full Effect",
-      body: "The SCOTUS ruling did not affect Section 301 tariffs on Chinese goods or Section 232 tariffs on steel, aluminum, copper, lumber, automobiles, and semiconductors. These continue to stack on top of the Section 122 baseline.",
-    },
-    {
-      level: "green",
-      title: "IEEPA Refunds Pending for 2025 Payments",
-      body: "Importers who paid IEEPA tariffs in 2025 may be entitled to refunds. CBP is developing a refund process through the ACE customs system. Consult your customs broker for status.",
-    },
+    { level: "red",   title: "Section 122 Global Baseline: 15%", body: "IEEPA tariffs struck down by Supreme Court on February 20, 2026. Trump invoked Section 122 imposing a 15% flat surcharge on most US imports effective February 22, 2026. Temporary for 150 days, expiring approximately July 24, 2026 unless Congress extends it. USMCA-qualifying goods and Section 232 products are exempt." },
+    { level: "amber", title: "Section 301 on China and Section 232 Remain in Full Effect", body: "The SCOTUS ruling did not affect Section 301 tariffs on Chinese goods or Section 232 tariffs on steel, aluminum, copper, lumber, automobiles, and semiconductors. These continue to stack on top of the Section 122 baseline." },
+    { level: "green", title: "IEEPA Refunds Pending for 2025 Payments", body: "Importers who paid IEEPA tariffs in 2025 may be entitled to refunds. CBP is developing a refund process through the ACE customs system. Consult your customs broker for status." },
   ],
   sources: [
     { label: "USITC HTS Schedule", url: "https://hts.usitc.gov" },
@@ -49,189 +38,170 @@ const RATE_BULLETIN = {
   ],
 };
 
-// ── HTS CHAPTER DATABASE ──────────────────────────────────────────────────────
-const HTS = {
+const COUNTRIES_FALLBACK = {
+  "china":       { l:"China",           f:"🇨🇳", r:"Asia Pacific",  b:15,  usmca:false, s122:true,  n:"Section 122 15% baseline. Section 301 and Section 232 stack on top." },
+  "vietnam":     { l:"Vietnam",         f:"🇻🇳", r:"Asia Pacific",  b:15,  usmca:false, s122:true,  n:"Section 122 15% baseline. Major China+1 alternative." },
+  "india":       { l:"India",           f:"🇮🇳", r:"Asia Pacific",  b:15,  usmca:false, s122:true,  n:"Section 122 15% baseline. Interim deal framework still being finalized." },
+  "taiwan":      { l:"Taiwan",          f:"🇹🇼", r:"Asia Pacific",  b:15,  usmca:false, s122:true,  n:"Section 122 15% baseline." },
+  "southkorea":  { l:"South Korea",     f:"🇰🇷", r:"Asia Pacific",  b:15,  usmca:false, s122:true,  n:"Section 122 15% baseline." },
+  "japan":       { l:"Japan",           f:"🇯🇵", r:"Asia Pacific",  b:15,  usmca:false, s122:true,  n:"Section 122 15% baseline." },
+  "indonesia":   { l:"Indonesia",       f:"🇮🇩", r:"Asia Pacific",  b:15,  usmca:false, s122:true,  n:"Section 122 15% baseline." },
+  "thailand":    { l:"Thailand",        f:"🇹🇭", r:"Asia Pacific",  b:15,  usmca:false, s122:true,  n:"Section 122 15% baseline." },
+  "malaysia":    { l:"Malaysia",        f:"🇲🇾", r:"Asia Pacific",  b:15,  usmca:false, s122:true,  n:"Section 122 15% baseline." },
+  "philippines": { l:"Philippines",     f:"🇵🇭", r:"Asia Pacific",  b:15,  usmca:false, s122:true,  n:"Section 122 15% baseline." },
+  "bangladesh":  { l:"Bangladesh",      f:"🇧🇩", r:"Asia Pacific",  b:15,  usmca:false, s122:true,  n:"Section 122 15% baseline. Major apparel exporter." },
+  "cambodia":    { l:"Cambodia",        f:"🇰🇭", r:"Asia Pacific",  b:15,  usmca:false, s122:true,  n:"Section 122 15% baseline." },
+  "pakistan":    { l:"Pakistan",        f:"🇵🇰", r:"Asia Pacific",  b:15,  usmca:false, s122:true,  n:"Section 122 15% baseline." },
+  "srilanka":    { l:"Sri Lanka",       f:"🇱🇰", r:"Asia Pacific",  b:15,  usmca:false, s122:true,  n:"Section 122 15% baseline." },
+  "australia":   { l:"Australia",       f:"🇦🇺", r:"Asia Pacific",  b:15,  usmca:false, s122:true,  n:"Section 122 15% baseline." },
+  "canada":      { l:"Canada",          f:"🇨🇦", r:"North America", b:0,   usmca:true,  s122:false, n:"USMCA-qualifying goods duty free. Non-qualifying 25%." },
+  "mexico":      { l:"Mexico",          f:"🇲🇽", r:"North America", b:0,   usmca:true,  s122:false, n:"USMCA-qualifying goods duty free. Non-qualifying 25%." },
+  "germany":     { l:"Germany",         f:"🇩🇪", r:"Europe",        b:15,  usmca:false, s122:true,  n:"Section 122 15% baseline. US-EU deal framework." },
+  "france":      { l:"France",          f:"🇫🇷", r:"Europe",        b:15,  usmca:false, s122:true,  n:"Section 122 15% baseline." },
+  "italy":       { l:"Italy",           f:"🇮🇹", r:"Europe",        b:15,  usmca:false, s122:true,  n:"Section 122 15% baseline." },
+  "spain":       { l:"Spain",           f:"🇪🇸", r:"Europe",        b:15,  usmca:false, s122:true,  n:"Section 122 15% baseline." },
+  "netherlands": { l:"Netherlands",     f:"🇳🇱", r:"Europe",        b:15,  usmca:false, s122:true,  n:"Section 122 15% baseline." },
+  "poland":      { l:"Poland",          f:"🇵🇱", r:"Europe",        b:15,  usmca:false, s122:true,  n:"Section 122 15% baseline." },
+  "sweden":      { l:"Sweden",          f:"🇸🇪", r:"Europe",        b:15,  usmca:false, s122:true,  n:"Section 122 15% baseline." },
+  "uk":          { l:"United Kingdom",  f:"🇬🇧", r:"Europe",        b:15,  usmca:false, s122:true,  n:"Section 122 15% baseline. Steel at 25% Section 232 (UK partial exemption)." },
+  "switzerland": { l:"Switzerland",     f:"🇨🇭", r:"Europe",        b:15,  usmca:false, s122:true,  n:"Section 122 15% baseline." },
+  "brazil":      { l:"Brazil",          f:"🇧🇷", r:"Americas",      b:15,  usmca:false, s122:true,  n:"Section 122 15% baseline." },
+  "colombia":    { l:"Colombia",        f:"🇨🇴", r:"Americas",      b:15,  usmca:false, s122:true,  n:"Section 122 15% baseline." },
+  "chile":       { l:"Chile",           f:"🇨🇱", r:"Americas",      b:15,  usmca:false, s122:true,  n:"Section 122 15% baseline." },
+  "peru":        { l:"Peru",            f:"🇵🇪", r:"Americas",      b:15,  usmca:false, s122:true,  n:"Section 122 15% baseline." },
+  "israel":      { l:"Israel",          f:"🇮🇱", r:"Middle East",   b:15,  usmca:false, s122:true,  n:"Section 122 15% baseline." },
+  "turkey":      { l:"Turkey",          f:"🇹🇷", r:"Middle East",   b:15,  usmca:false, s122:true,  n:"Section 122 15% baseline." },
+  "uae":         { l:"UAE",             f:"🇦🇪", r:"Middle East",   b:15,  usmca:false, s122:true,  n:"Section 122 15% baseline." },
+  "saudiarabia": { l:"Saudi Arabia",    f:"🇸🇦", r:"Middle East",   b:15,  usmca:false, s122:true,  n:"Section 122 15% baseline." },
+  "southafrica": { l:"South Africa",    f:"🇿🇦", r:"Africa",        b:15,  usmca:false, s122:true,  n:"Section 122 15% baseline." },
+  "egypt":       { l:"Egypt",           f:"🇪🇬", r:"Africa",        b:15,  usmca:false, s122:true,  n:"Section 122 15% baseline." },
+  "nigeria":     { l:"Nigeria",         f:"🇳🇬", r:"Africa",        b:15,  usmca:false, s122:true,  n:"Section 122 15% baseline." },
+  "other":       { l:"Other Country",   f:"🌍",  r:"Other",         b:15,  usmca:false, s122:true,  n:"Default Section 122 15% global baseline." },
+};
+
+const HTS_FALLBACK = {
   "01":{ s:"I",    d:"Live Animals",                         ml:0,  mh:2.4,  c:false, cr:0,   s2:false, s2r:0,  n:"Most live animals enter duty free." },
   "02":{ s:"I",    d:"Meat and Edible Meat Offal",           ml:0,  mh:26.4, c:false, cr:0,   s2:false, s2r:0,  n:"Beef 26.4%, pork typically free." },
   "03":{ s:"I",    d:"Fish and Seafood",                     ml:0,  mh:15,   c:false, cr:0,   s2:false, s2r:0,  n:"Most fish 0% to 3.5%." },
   "04":{ s:"I",    d:"Dairy, Eggs, Honey",                   ml:0,  mh:23.7, c:false, cr:0,   s2:false, s2r:0,  n:"Cheese and butter can carry high rates." },
   "05":{ s:"I",    d:"Other Animal Products",                ml:0,  mh:5,    c:false, cr:0,   s2:false, s2r:0,  n:"Generally low." },
-  "06":{ s:"II",   d:"Live Plants and Cut Flowers",          ml:0,  mh:6.8,  c:false, cr:0,   s2:false, s2r:0,  n:"Cut flowers 6.8%, plants often free." },
-  "07":{ s:"II",   d:"Vegetables",                           ml:0,  mh:20.7, c:false, cr:0,   s2:false, s2r:0,  n:"Most 0% to 14.9%." },
-  "08":{ s:"II",   d:"Fruit and Nuts",                       ml:0,  mh:17.6, c:false, cr:0,   s2:false, s2r:0,  n:"Most fresh fruit 0% to 6%." },
-  "09":{ s:"II",   d:"Coffee, Tea, Spices",                  ml:0,  mh:6.4,  c:false, cr:0,   s2:false, s2r:0,  n:"Coffee free, some spices 6.4%." },
-  "10":{ s:"II",   d:"Cereals",                              ml:0,  mh:0.65, c:false, cr:0,   s2:false, s2r:0,  n:"Mostly free." },
-  "11":{ s:"II",   d:"Milling Products, Starch",             ml:0,  mh:8.5,  c:false, cr:0,   s2:false, s2r:0,  n:"Flour and starches generally low." },
-  "12":{ s:"II",   d:"Oil Seeds, Industrial Plants",         ml:0,  mh:8.8,  c:false, cr:0,   s2:false, s2r:0,  n:"Soybeans free." },
-  "13":{ s:"II",   d:"Lac, Gums, Resins",                    ml:0,  mh:3.7,  c:false, cr:0,   s2:false, s2r:0,  n:"Generally low." },
-  "14":{ s:"II",   d:"Vegetable Plaiting Materials",         ml:0,  mh:3.9,  c:false, cr:0,   s2:false, s2r:0,  n:"Low rates." },
-  "15":{ s:"III",  d:"Animal and Vegetable Fats, Oils",      ml:0,  mh:8.8,  c:false, cr:0,   s2:false, s2r:0,  n:"Most vegetable oils free." },
-  "16":{ s:"IV",   d:"Preparations of Meat or Fish",         ml:0,  mh:11.2, c:false, cr:0,   s2:false, s2r:0,  n:"Canned goods 5% to 11%." },
-  "17":{ s:"IV",   d:"Sugar and Confectionery",              ml:0,  mh:39.9, c:false, cr:0,   s2:false, s2r:0,  n:"Raw sugar high rates up to 39.9%." },
-  "18":{ s:"IV",   d:"Cocoa and Chocolate",                  ml:0,  mh:7.7,  c:false, cr:0,   s2:false, s2r:0,  n:"Chocolate typically 5% to 7.7%." },
-  "19":{ s:"IV",   d:"Cereals and Food Preparations",        ml:0,  mh:10,   c:false, cr:0,   s2:false, s2r:0,  n:"Bread, pasta typically 0% to 10%." },
-  "20":{ s:"IV",   d:"Vegetable Preparations",               ml:0,  mh:13.9, c:false, cr:0,   s2:false, s2r:0,  n:"Canned vegetables typically 6% to 14%." },
-  "21":{ s:"IV",   d:"Miscellaneous Food Preparations",      ml:0,  mh:10.2, c:false, cr:0,   s2:false, s2r:0,  n:"Sauces, soups, condiments." },
-  "22":{ s:"IV",   d:"Beverages, Spirits, Vinegar",          ml:0,  mh:6.3,  c:false, cr:0,   s2:false, s2r:0,  n:"Beer free, wine 6.3%." },
-  "23":{ s:"IV",   d:"Animal Feed Residues",                 ml:0,  mh:1.4,  c:false, cr:0,   s2:false, s2r:0,  n:"Mostly free." },
-  "24":{ s:"IV",   d:"Tobacco",                              ml:0,  mh:350,  c:false, cr:0,   s2:false, s2r:0,  n:"Complex rate structure for cigarettes." },
-  "25":{ s:"V",    d:"Salt, Sulfur, Stone, Cement",          ml:0,  mh:3.7,  c:false, cr:0,   s2:false, s2r:0,  n:"Generally free to low." },
-  "26":{ s:"V",    d:"Ores, Slag, Ash",                      ml:0,  mh:2.6,  c:false, cr:0,   s2:false, s2r:0,  n:"Most free." },
-  "27":{ s:"V",    d:"Mineral Fuels, Oil, Gas",              ml:0,  mh:5.25, c:false, cr:0,   s2:false, s2r:0,  n:"Crude oil free, refined products low." },
   "28":{ s:"VI",   d:"Inorganic Chemicals",                  ml:0,  mh:5.5,  c:true,  cr:25,  s2:false, s2r:0,  n:"Section 301 at 25% for most from China." },
   "29":{ s:"VI",   d:"Organic Chemicals",                    ml:0,  mh:6.5,  c:true,  cr:25,  s2:false, s2r:0,  n:"Section 301 at 25% broadly applies." },
-  "30":{ s:"VI",   d:"Pharmaceutical Products",              ml:0,  mh:6.5,  c:false, cr:0,   s2:false, s2r:0,  n:"Most pharma free under WTO. Section 301 generally does not apply." },
-  "31":{ s:"VI",   d:"Fertilizers",                          ml:0,  mh:5,    c:true,  cr:25,  s2:false, s2r:0,  n:"Section 301 at 25%." },
-  "32":{ s:"VI",   d:"Tanning, Dyeing, Paints, Varnishes",   ml:0,  mh:6.5,  c:true,  cr:25,  s2:false, s2r:0,  n:"Section 301 at 25%." },
-  "33":{ s:"VI",   d:"Essential Oils, Cosmetics",            ml:0,  mh:6.5,  c:true,  cr:7.5, s2:false, s2r:0,  n:"Section 301 at 7.5% (List 3)." },
-  "34":{ s:"VI",   d:"Soap, Waxes, Lubricants",              ml:0,  mh:5.8,  c:true,  cr:7.5, s2:false, s2r:0,  n:"Section 301 at 7.5%." },
-  "35":{ s:"VI",   d:"Albuminoidal Substances, Enzymes",     ml:0,  mh:6.3,  c:true,  cr:25,  s2:false, s2r:0,  n:"Section 301 at 25%." },
-  "36":{ s:"VI",   d:"Explosives, Matches, Pyrotechnics",    ml:0,  mh:6.5,  c:true,  cr:25,  s2:false, s2r:0,  n:"Section 301 at 25%." },
-  "37":{ s:"VI",   d:"Photographic Film",                    ml:0,  mh:6.5,  c:true,  cr:25,  s2:false, s2r:0,  n:"Section 301 at 25%." },
-  "38":{ s:"VI",   d:"Miscellaneous Chemical Products",      ml:0,  mh:6.5,  c:true,  cr:25,  s2:false, s2r:0,  n:"Section 301 at 25%." },
   "39":{ s:"VII",  d:"Plastics and Articles Thereof",        ml:0,  mh:6.5,  c:true,  cr:25,  s2:false, s2r:0,  n:"Section 301 at 25%." },
-  "40":{ s:"VII",  d:"Rubber and Articles Thereof",          ml:0,  mh:10,   c:true,  cr:25,  s2:false, s2r:0,  n:"Section 301 at 25%." },
-  "41":{ s:"VIII", d:"Hides, Skins, Leather",                ml:0,  mh:5,    c:true,  cr:7.5, s2:false, s2r:0,  n:"Section 301 at 7.5%." },
-  "42":{ s:"VIII", d:"Leather Articles, Handbags",           ml:0,  mh:20,   c:true,  cr:7.5, s2:false, s2r:0,  n:"Handbags up to 20% MFN. Section 301 at 7.5%." },
-  "43":{ s:"VIII", d:"Furskins and Fur Products",            ml:0,  mh:8.5,  c:true,  cr:7.5, s2:false, s2r:0,  n:"Section 301 at 7.5%." },
-  "44":{ s:"IX",   d:"Wood and Wood Articles",               ml:0,  mh:10,   c:true,  cr:25,  s2:false, s2r:0,  n:"Section 301 at 25%. Some lumber subject to Section 232." },
-  "45":{ s:"IX",   d:"Cork and Cork Articles",               ml:0,  mh:18,   c:true,  cr:25,  s2:false, s2r:0,  n:"Section 301 at 25%." },
-  "46":{ s:"IX",   d:"Straw, Esparto, Basketware",           ml:0,  mh:8.4,  c:true,  cr:7.5, s2:false, s2r:0,  n:"Section 301 at 7.5%." },
-  "47":{ s:"X",    d:"Pulp of Wood",                         ml:0,  mh:0,    c:false, cr:0,   s2:false, s2r:0,  n:"Mostly free." },
-  "48":{ s:"X",    d:"Paper and Paperboard",                 ml:0,  mh:6,    c:true,  cr:25,  s2:false, s2r:0,  n:"Section 301 at 25%." },
-  "49":{ s:"X",    d:"Printed Books, Newspapers, Maps",      ml:0,  mh:0,    c:false, cr:0,   s2:false, s2r:0,  n:"Mostly free." },
-  "50":{ s:"XI",   d:"Silk",                                 ml:0,  mh:11,   c:true,  cr:7.5, s2:false, s2r:0,  n:"Section 301 at 7.5%." },
-  "51":{ s:"XI",   d:"Wool and Animal Hair",                 ml:0,  mh:37.5, c:true,  cr:7.5, s2:false, s2r:0,  n:"Section 301 at 7.5%." },
-  "52":{ s:"XI",   d:"Cotton",                               ml:0,  mh:21,   c:true,  cr:7.5, s2:false, s2r:0,  n:"Section 301 at 7.5%." },
-  "53":{ s:"XI",   d:"Other Vegetable Textile Fibers",       ml:0,  mh:11,   c:true,  cr:7.5, s2:false, s2r:0,  n:"Section 301 at 7.5%." },
-  "54":{ s:"XI",   d:"Man-Made Filaments",                   ml:0,  mh:14.9, c:true,  cr:7.5, s2:false, s2r:0,  n:"Section 301 at 7.5%." },
-  "55":{ s:"XI",   d:"Man-Made Staple Fibers",               ml:0,  mh:15.1, c:true,  cr:7.5, s2:false, s2r:0,  n:"Section 301 at 7.5%." },
-  "56":{ s:"XI",   d:"Wadding, Felt, Nonwovens",             ml:0,  mh:14,   c:true,  cr:7.5, s2:false, s2r:0,  n:"Section 301 at 7.5%." },
-  "57":{ s:"XI",   d:"Carpets and Floor Coverings",          ml:0,  mh:13.6, c:true,  cr:7.5, s2:false, s2r:0,  n:"Section 301 at 7.5%." },
-  "58":{ s:"XI",   d:"Special Woven Fabrics",                ml:0,  mh:15.1, c:true,  cr:7.5, s2:false, s2r:0,  n:"Section 301 at 7.5%." },
-  "59":{ s:"XI",   d:"Impregnated Textile Fabrics",          ml:0,  mh:14.9, c:true,  cr:7.5, s2:false, s2r:0,  n:"Section 301 at 7.5%." },
-  "60":{ s:"XI",   d:"Knitted or Crocheted Fabrics",         ml:0,  mh:15.1, c:true,  cr:7.5, s2:false, s2r:0,  n:"Section 301 at 7.5%." },
   "61":{ s:"XI",   d:"Knitted Apparel",                      ml:0,  mh:32,   c:true,  cr:7.5, s2:false, s2r:0,  n:"Section 301 at 7.5%. MFN up to 32%." },
   "62":{ s:"XI",   d:"Woven Apparel",                        ml:0,  mh:28.6, c:true,  cr:7.5, s2:false, s2r:0,  n:"Section 301 at 7.5%." },
-  "63":{ s:"XI",   d:"Other Made-Up Textile Articles",       ml:0,  mh:14.9, c:true,  cr:7.5, s2:false, s2r:0,  n:"Section 301 at 7.5%." },
   "64":{ s:"XII",  d:"Footwear",                             ml:0,  mh:67.5, c:true,  cr:7.5, s2:false, s2r:0,  n:"MFN up to 67.5%. Section 301 at 7.5%." },
-  "65":{ s:"XII",  d:"Headgear",                             ml:0,  mh:27.5, c:true,  cr:7.5, s2:false, s2r:0,  n:"Section 301 at 7.5%." },
-  "66":{ s:"XII",  d:"Umbrellas, Walking Sticks",            ml:0,  mh:8.2,  c:true,  cr:7.5, s2:false, s2r:0,  n:"Section 301 at 7.5%." },
-  "67":{ s:"XII",  d:"Feathers, Artificial Flowers, Wigs",   ml:0,  mh:6.1,  c:true,  cr:7.5, s2:false, s2r:0,  n:"Section 301 at 7.5%." },
-  "68":{ s:"XIII", d:"Stone, Plaster, Cement Articles",      ml:0,  mh:9,    c:true,  cr:25,  s2:false, s2r:0,  n:"Section 301 at 25%." },
-  "69":{ s:"XIII", d:"Ceramic Products",                     ml:0,  mh:28,   c:true,  cr:25,  s2:false, s2r:0,  n:"Section 301 at 25%. Tile up to 28%." },
-  "70":{ s:"XIII", d:"Glass and Glassware",                  ml:0,  mh:38.3, c:true,  cr:25,  s2:false, s2r:0,  n:"Section 301 at 25%." },
-  "71":{ s:"XIV",  d:"Precious Metals, Jewelry, Coins",      ml:0,  mh:13.5, c:true,  cr:7.5, s2:false, s2r:0,  n:"Section 301 at 7.5%. Gold generally free." },
-  "72":{ s:"XV",   d:"Iron and Steel",                       ml:0,  mh:6.5,  c:true,  cr:25,  s2:true,  s2r:50, n:"Section 232 at 50% on steel. Section 301 at 25% from China. Section 122 does NOT stack with Section 232." },
-  "73":{ s:"XV",   d:"Iron or Steel Articles",               ml:0,  mh:11.5, c:true,  cr:25,  s2:true,  s2r:50, n:"Steel derivative. Section 232 at 50% applies. Section 122 does NOT stack with Section 232." },
-  "74":{ s:"XV",   d:"Copper and Copper Articles",           ml:0,  mh:6.5,  c:true,  cr:25,  s2:false, s2r:0,  n:"Section 301 at 25%. Copper under separate Section 232 investigation." },
-  "75":{ s:"XV",   d:"Nickel and Nickel Articles",           ml:0,  mh:6.5,  c:true,  cr:25,  s2:false, s2r:0,  n:"Section 301 at 25%." },
-  "76":{ s:"XV",   d:"Aluminum and Aluminum Articles",       ml:0,  mh:6.5,  c:true,  cr:25,  s2:true,  s2r:50, n:"Section 232 at 50% on aluminum. Section 301 at 25% from China. Section 122 does NOT stack with Section 232." },
-  "78":{ s:"XV",   d:"Lead and Lead Articles",               ml:0,  mh:6.5,  c:true,  cr:25,  s2:false, s2r:0,  n:"Section 301 at 25%." },
-  "79":{ s:"XV",   d:"Zinc and Zinc Articles",               ml:0,  mh:5.5,  c:true,  cr:25,  s2:false, s2r:0,  n:"Section 301 at 25%." },
-  "80":{ s:"XV",   d:"Tin and Tin Articles",                 ml:0,  mh:3,    c:true,  cr:25,  s2:false, s2r:0,  n:"Section 301 at 25%." },
-  "81":{ s:"XV",   d:"Other Base Metals, Cermets",           ml:0,  mh:6.5,  c:true,  cr:25,  s2:false, s2r:0,  n:"Section 301 at 25%." },
-  "82":{ s:"XV",   d:"Tools, Cutlery of Base Metal",         ml:0,  mh:12,   c:true,  cr:25,  s2:false, s2r:0,  n:"Section 301 at 25%." },
-  "83":{ s:"XV",   d:"Miscellaneous Base Metal Articles",    ml:0,  mh:8,    c:true,  cr:25,  s2:false, s2r:0,  n:"Section 301 at 25%." },
-  "84":{ s:"XVI",  d:"Machinery, Boilers, Nuclear Reactors", ml:0,  mh:6,    c:true,  cr:25,  s2:false, s2r:0,  n:"Section 301 at 25%. Exclusions available for manufacturing equipment. HTS 8541/8542 semiconductors at 50%." },
-  "85":{ s:"XVI",  d:"Electrical Machinery, Electronics",    ml:0,  mh:6,    c:true,  cr:25,  s2:false, s2r:0,  n:"Section 301 at 25% for most. Some consumer electronics at 7.5%. Semiconductors (8541/8542) at 50%. EVs at 100%." },
-  "86":{ s:"XVII", d:"Railway Equipment",                    ml:0,  mh:6.5,  c:true,  cr:25,  s2:false, s2r:0,  n:"Section 301 at 25%." },
-  "87":{ s:"XVII", d:"Vehicles (not railway)",               ml:0,  mh:25,   c:true,  cr:25,  s2:false, s2r:0,  n:"Autos 2.5% MFN. Section 232 at 25% on autos/parts. EVs from China at 100%. Section 122 does NOT stack with Section 232." },
-  "88":{ s:"XVII", d:"Aircraft and Spacecraft",              ml:0,  mh:5,    c:true,  cr:25,  s2:false, s2r:0,  n:"Civil aircraft often free. Section 301 at 25%." },
-  "89":{ s:"XVII", d:"Ships and Boats",                      ml:0,  mh:3.4,  c:true,  cr:25,  s2:false, s2r:0,  n:"Section 301 at 25%." },
-  "90":{ s:"XVIII",d:"Optical, Medical, Measuring Instruments",ml:0,mh:6.7,  c:true,  cr:25,  s2:false, s2r:0,  n:"Section 301 at 25%. Syringes/needles at 100%." },
-  "91":{ s:"XVIII",d:"Clocks and Watches",                   ml:0,  mh:7.6,  c:true,  cr:25,  s2:false, s2r:0,  n:"Section 301 at 25%." },
-  "92":{ s:"XVIII",d:"Musical Instruments",                  ml:0,  mh:4.9,  c:true,  cr:7.5, s2:false, s2r:0,  n:"Section 301 at 7.5%." },
-  "93":{ s:"XIX",  d:"Arms and Ammunition",                  ml:0,  mh:6.8,  c:true,  cr:25,  s2:false, s2r:0,  n:"Section 301 at 25%." },
-  "94":{ s:"XX",   d:"Furniture, Bedding, Lighting",         ml:0,  mh:7,    c:true,  cr:25,  s2:false, s2r:0,  n:"Section 301 at 25%. Upholstered furniture subject to Section 232 investigation." },
-  "95":{ s:"XX",   d:"Toys, Games, Sports Equipment",        ml:0,  mh:14.6, c:true,  cr:7.5, s2:false, s2r:0,  n:"Section 301 at 7.5% (List 3/4A)." },
-  "96":{ s:"XX",   d:"Miscellaneous Manufactured Articles",  ml:0,  mh:11.6, c:true,  cr:7.5, s2:false, s2r:0,  n:"Section 301 at 7.5%." },
-  "97":{ s:"XXI",  d:"Works of Art, Antiques",               ml:0,  mh:6.6,  c:false, cr:0,   s2:false, s2r:0,  n:"Original works generally free." },
-  "98":{ s:"XXI",  d:"Special Classification Provisions",    ml:0,  mh:0,    c:false, cr:0,   s2:false, s2r:0,  n:"Goods returned, duty free imports." },
-  "99":{ s:"XXI",  d:"Temporary and Special Tariff Programs",ml:0,  mh:0,    c:false, cr:0,   s2:false, s2r:0,  n:"Tariff exclusions and special provisions." },
-};
-
-// ── COUNTRY DATABASE ──────────────────────────────────────────────────────────
-// All baselines updated to reflect Section 122 at 15% as of Feb 22, 2026
-// s122 = whether Section 122 15% baseline applies
-// s122_exempt = whether excluded from Section 122 (USMCA, Section 232 products)
-const COUNTRIES = {
-  // ASIA PACIFIC
-  "china":       { l:"China",           f:"🇨🇳", r:"Asia Pacific",  b:15,  usmca:false, s122:true,  n:"Section 122 15% baseline. Section 301 (7.5% to 50%) and Section 232 stack on top. IEEPA struck down Feb 2026. China faces highest overall tariff burden." },
-  "vietnam":     { l:"Vietnam",         f:"🇻🇳", r:"Asia Pacific",  b:15,  usmca:false, s122:true,  n:"Section 122 15% baseline. Previously faced 46% IEEPA rate. Significant relief post-SCOTUS ruling. Major China+1 alternative." },
-  "india":       { l:"India",           f:"🇮🇳", r:"Asia Pacific",  b:15,  usmca:false, s122:true,  n:"Section 122 15% baseline. Previously 50% (IEEPA), reduced to 18% in Feb 2026 deal, then IEEPA struck down. Now at MFN plus 15% Section 122. Deal framework still being finalized." },
-  "taiwan":      { l:"Taiwan",          f:"🇹🇼", r:"Asia Pacific",  b:15,  usmca:false, s122:true,  n:"Section 122 15% baseline. Critical semiconductor supply chain. No Section 301." },
-  "southkorea":  { l:"South Korea",     f:"🇰🇷", r:"Asia Pacific",  b:15,  usmca:false, s122:true,  n:"Section 122 15% baseline. Previously 25% IEEPA rate." },
-  "japan":       { l:"Japan",           f:"🇯🇵", r:"Asia Pacific",  b:15,  usmca:false, s122:true,  n:"Section 122 15% baseline. US-Japan deal framework at 15% aligns with current rate." },
-  "indonesia":   { l:"Indonesia",       f:"🇮🇩", r:"Asia Pacific",  b:15,  usmca:false, s122:true,  n:"Section 122 15% baseline. Previously 32% IEEPA rate." },
-  "thailand":    { l:"Thailand",        f:"🇹🇭", r:"Asia Pacific",  b:15,  usmca:false, s122:true,  n:"Section 122 15% baseline. Previously 36% IEEPA rate." },
-  "malaysia":    { l:"Malaysia",        f:"🇲🇾", r:"Asia Pacific",  b:15,  usmca:false, s122:true,  n:"Section 122 15% baseline. Previously 24% IEEPA rate." },
-  "philippines": { l:"Philippines",     f:"🇵🇭", r:"Asia Pacific",  b:15,  usmca:false, s122:true,  n:"Section 122 15% baseline. Previously 17% IEEPA rate." },
-  "bangladesh":  { l:"Bangladesh",      f:"🇧🇩", r:"Asia Pacific",  b:15,  usmca:false, s122:true,  n:"Section 122 15% baseline. Major apparel exporter. Previously 37% IEEPA rate." },
-  "cambodia":    { l:"Cambodia",        f:"🇰🇭", r:"Asia Pacific",  b:15,  usmca:false, s122:true,  n:"Section 122 15% baseline. Previously 49% IEEPA rate. Solar panels subject to CVD up to 3521%." },
-  "pakistan":    { l:"Pakistan",        f:"🇵🇰", r:"Asia Pacific",  b:15,  usmca:false, s122:true,  n:"Section 122 15% baseline. Textiles and apparel." },
-  "srilanka":    { l:"Sri Lanka",       f:"🇱🇰", r:"Asia Pacific",  b:15,  usmca:false, s122:true,  n:"Section 122 15% baseline. Apparel." },
-  "australia":   { l:"Australia",       f:"🇦🇺", r:"Asia Pacific",  b:15,  usmca:false, s122:true,  n:"Section 122 15% baseline. Previously 25% IEEPA rate." },
-  // NORTH AMERICA
-  "canada":      { l:"Canada",          f:"🇨🇦", r:"North America", b:0,   usmca:true,  s122:false, n:"USMCA-qualifying goods duty free and exempt from Section 122. Non-qualifying goods face 25% tariff. 85% of Canadian imports claiming USMCA exemption as of Jan 2026." },
-  "mexico":      { l:"Mexico",          f:"🇲🇽", r:"North America", b:0,   usmca:true,  s122:false, n:"USMCA-qualifying goods duty free and exempt from Section 122. Non-qualifying goods face 25% tariff. Verify rules of origin." },
-  // EUROPE
-  "germany":     { l:"Germany",         f:"🇩🇪", r:"Europe",        b:15,  usmca:false, s122:true,  n:"Section 122 15% baseline. US-EU deal framework at 15% aligns with current rate." },
-  "france":      { l:"France",          f:"🇫🇷", r:"Europe",        b:15,  usmca:false, s122:true,  n:"Section 122 15% baseline. US-EU deal framework." },
-  "italy":       { l:"Italy",           f:"🇮🇹", r:"Europe",        b:15,  usmca:false, s122:true,  n:"Section 122 15% baseline. US-EU deal framework." },
-  "spain":       { l:"Spain",           f:"🇪🇸", r:"Europe",        b:15,  usmca:false, s122:true,  n:"Section 122 15% baseline. US-EU deal framework." },
-  "netherlands": { l:"Netherlands",     f:"🇳🇱", r:"Europe",        b:15,  usmca:false, s122:true,  n:"Section 122 15% baseline. US-EU deal framework." },
-  "poland":      { l:"Poland",          f:"🇵🇱", r:"Europe",        b:15,  usmca:false, s122:true,  n:"Section 122 15% baseline. US-EU deal framework." },
-  "sweden":      { l:"Sweden",          f:"🇸🇪", r:"Europe",        b:15,  usmca:false, s122:true,  n:"Section 122 15% baseline. US-EU deal framework." },
-  "uk":          { l:"United Kingdom",  f:"🇬🇧", r:"Europe",        b:15,  usmca:false, s122:true,  n:"Section 122 15% baseline. Steel 25% Section 232 (UK partial exemption from 50%). Previously under separate US-UK framework." },
-  "switzerland": { l:"Switzerland",     f:"🇨🇭", r:"Europe",        b:15,  usmca:false, s122:true,  n:"Section 122 15% baseline. Previously 31% IEEPA rate." },
-  // AMERICAS
-  "brazil":      { l:"Brazil",          f:"🇧🇷", r:"Americas",      b:15,  usmca:false, s122:true,  n:"Section 122 15% baseline. Previously 50% tariff effective Aug 2025 under IEEPA which has been struck down." },
-  "colombia":    { l:"Colombia",        f:"🇨🇴", r:"Americas",      b:15,  usmca:false, s122:true,  n:"Section 122 15% baseline. US-Colombia FTA may provide relief for qualifying goods." },
-  "chile":       { l:"Chile",           f:"🇨🇱", r:"Americas",      b:15,  usmca:false, s122:true,  n:"Section 122 15% baseline. US-Chile FTA may provide relief." },
-  "peru":        { l:"Peru",            f:"🇵🇪", r:"Americas",      b:15,  usmca:false, s122:true,  n:"Section 122 15% baseline. US-Peru FTA may provide relief." },
-  // MIDDLE EAST
-  "israel":      { l:"Israel",          f:"🇮🇱", r:"Middle East",   b:15,  usmca:false, s122:true,  n:"Section 122 15% baseline. US-Israel FTA may provide relief for qualifying goods." },
-  "turkey":      { l:"Turkey",          f:"🇹🇷", r:"Middle East",   b:15,  usmca:false, s122:true,  n:"Section 122 15% baseline." },
-  "uae":         { l:"UAE",             f:"🇦🇪", r:"Middle East",   b:15,  usmca:false, s122:true,  n:"Section 122 15% baseline." },
-  "saudiarabia": { l:"Saudi Arabia",    f:"🇸🇦", r:"Middle East",   b:15,  usmca:false, s122:true,  n:"Section 122 15% baseline." },
-  // AFRICA
-  "southafrica": { l:"South Africa",    f:"🇿🇦", r:"Africa",        b:15,  usmca:false, s122:true,  n:"Section 122 15% baseline. Previously 30% IEEPA rate." },
-  "egypt":       { l:"Egypt",           f:"🇪🇬", r:"Africa",        b:15,  usmca:false, s122:true,  n:"Section 122 15% baseline." },
-  "nigeria":     { l:"Nigeria",         f:"🇳🇬", r:"Africa",        b:15,  usmca:false, s122:true,  n:"Section 122 15% baseline." },
-  // OTHER
-  "other":       { l:"Other Country",   f:"🌍",  r:"Other",         b:15,  usmca:false, s122:true,  n:"Default Section 122 15% global baseline. Enter your specific rates on Tab 2." },
+  "72":{ s:"XV",   d:"Iron and Steel",                       ml:0,  mh:6.5,  c:true,  cr:25,  s2:true,  s2r:50, n:"Section 232 at 50%. Section 301 at 25% from China. Section 122 does NOT stack with Section 232." },
+  "73":{ s:"XV",   d:"Iron or Steel Articles",               ml:0,  mh:11.5, c:true,  cr:25,  s2:true,  s2r:50, n:"Steel derivative. Section 232 at 50%." },
+  "76":{ s:"XV",   d:"Aluminum and Aluminum Articles",       ml:0,  mh:6.5,  c:true,  cr:25,  s2:true,  s2r:50, n:"Section 232 at 50%. Section 301 at 25% from China." },
+  "84":{ s:"XVI",  d:"Machinery, Boilers, Nuclear Reactors", ml:0,  mh:6,    c:true,  cr:25,  s2:false, s2r:0,  n:"Section 301 at 25%. Exclusions available for manufacturing equipment." },
+  "85":{ s:"XVI",  d:"Electrical Machinery, Electronics",    ml:0,  mh:6,    c:true,  cr:25,  s2:false, s2r:0,  n:"Section 301 at 25% for most. Semiconductors at 50%. EVs at 100%." },
+  "87":{ s:"XVII", d:"Vehicles (not railway)",               ml:0,  mh:25,   c:true,  cr:25,  s2:false, s2r:0,  n:"Autos 2.5% MFN. Section 232 at 25% on autos and parts. EVs from China at 100%." },
+  "90":{ s:"XVIII",d:"Optical, Medical, Measuring Instruments",ml:0,mh:6.7,  c:true,  cr:25,  s2:false, s2r:0,  n:"Section 301 at 25%. Syringes and needles at 100%." },
+  "94":{ s:"XX",   d:"Furniture, Bedding, Lighting",         ml:0,  mh:7,    c:true,  cr:25,  s2:false, s2r:0,  n:"Section 301 at 25%." },
+  "95":{ s:"XX",   d:"Toys, Games, Sports Equipment",        ml:0,  mh:14.6, c:true,  cr:7.5, s2:false, s2r:0,  n:"Section 301 at 7.5%." },
 };
 
 const REGIONS = ["Asia Pacific", "North America", "Europe", "Americas", "Middle East", "Africa", "Other"];
 const RAG_COLORS = { red: C.red, amber: C.amber, green: C.green };
-const RAG_BG = { red: C.redLight, amber: C.amberLight, green: C.greenLight };
+const RAG_BG     = { red: C.redLight, amber: C.amberLight, green: C.greenLight };
 
 const parse = (v) => { const n = parseFloat(String(v).replace(/[^0-9.]/g,"")); return isNaN(n) ? 0 : n; };
-const fmt = (n, d=2) => "$" + Number(n).toFixed(d).replace(/\B(?=(\d{3})+(?!\d))/g, ",");
+const fmt = (n, d=2) => "$" + Number(n).toFixed(d).replace(/\B(?=(\d{3})+(?!\d))/g,",");
 const fmtPct = (n) => Number(n).toFixed(2) + "%";
 
 export default function TariffCalculator() {
-  const [activeTab, setActiveTab]       = useState("product");
-  const [showBulletin, setShowBulletin] = useState(true);
+  const [activeTab, setActiveTab]             = useState("product");
+  const [showBulletin, setShowBulletin]       = useState(true);
   const [selectedCountry, setSelectedCountry] = useState("china");
   const [countrySearch, setCountrySearch]     = useState("");
   const [activeRegion, setActiveRegion]       = useState("Asia Pacific");
-  const [htsInput, setHtsInput]         = useState("");
-  const [htsSuggestion, setHtsSuggestion] = useState(null);
-  const [productValue, setProductValue] = useState("");
-  const [quantity, setQuantity]         = useState("");
-  const [freightCost, setFreightCost]   = useState("");
-  const [insuranceRate, setInsuranceRate] = useState("0.5");
-  const [brokerFee, setBrokerFee]       = useState("175");
-  const [customsBond, setCustomsBond]   = useState("50");
-  const [otherFees, setOtherFees]       = useState("");
-  const [mnfRate, setMnfRate]           = useState("3.5");
-  const [baselineRate, setBaselineRate] = useState("15");
-  const [section301Rate, setSection301Rate] = useState("0");
-  const [section232Rate, setSection232Rate] = useState("0");
-  const [customTariff, setCustomTariff] = useState("0");
-  const [showRateGuide, setShowRateGuide] = useState(false);
+  const [htsInput, setHtsInput]               = useState("");
+  const [htsSuggestion, setHtsSuggestion]     = useState(null);
+  const [productValue, setProductValue]       = useState("");
+  const [quantity, setQuantity]               = useState("");
+  const [freightCost, setFreightCost]         = useState("");
+  const [insuranceRate, setInsuranceRate]     = useState("0.5");
+  const [brokerFee, setBrokerFee]             = useState("175");
+  const [customsBond, setCustomsBond]         = useState("50");
+  const [otherFees, setOtherFees]             = useState("");
+  const [mnfRate, setMnfRate]                 = useState("3.5");
+  const [baselineRate, setBaselineRate]       = useState("15");
+  const [section301Rate, setSection301Rate]   = useState("0");
+  const [section232Rate, setSection232Rate]   = useState("0");
+  const [customTariff, setCustomTariff]       = useState("0");
+  const [showRateGuide, setShowRateGuide]     = useState(false);
+  const [apiCountries, setApiCountries]       = useState(null);
+  const [apiChapters, setApiChapters]         = useState(null);
+  const [apiBulletin, setApiBulletin]         = useState(null);
+  const [apiLoaded, setApiLoaded]             = useState(false);
+
+  // ── Fetch from API on load, fall back to hardcoded if API unavailable ──────
+  useEffect(() => {
+    Promise.all([
+      fetch(`${API}/api/countries`).then(r => r.json()),
+      fetch(`${API}/api/chapters`).then(r => r.json()),
+      fetch(`${API}/api/bulletin`).then(r => r.json()),
+    ]).then(([countriesData, chaptersData, bulletinData]) => {
+
+      // Transform countries to match component shape
+      const transformedCountries = {};
+      countriesData.forEach(c => {
+        transformedCountries[c.key] = {
+          l:    c.label,
+          f:    c.flag,
+          r:    c.region,
+          b:    parseFloat(c.baseline_rate),
+          usmca: c.usmca,
+          s122: !c.s122_exempt,
+          n:    c.notes,
+        };
+      });
+
+      // Transform chapters to match component shape
+      const transformedChapters = {};
+      chaptersData.forEach(ch => {
+        transformedChapters[ch.chapter] = {
+          s:   ch.section,
+          d:   ch.description,
+          ml:  parseFloat(ch.mnf_low),
+          mh:  parseFloat(ch.mnf_high),
+          c:   ch.s301_applies,
+          cr:  parseFloat(ch.s301_rate),
+          s2:  ch.s232_applies,
+          s2r: parseFloat(ch.s232_rate),
+          n:   ch.notes,
+        };
+      });
+
+      // Transform bulletin
+      const transformedBulletin = {
+        version:      bulletinData.version,
+        lastVerified: new Date(bulletinData.lastVerified)
+          .toLocaleDateString('en-US', { month: 'long', day: 'numeric', year: 'numeric' }),
+        alerts:  bulletinData.alerts,
+        sources: bulletinData.sources,
+      };
+
+      setApiCountries(transformedCountries);
+      setApiChapters(transformedChapters);
+      setApiBulletin(transformedBulletin);
+      setApiLoaded(true);
+      console.log('API data loaded:', {
+        countries: Object.keys(transformedCountries).length,
+        chapters:  Object.keys(transformedChapters).length,
+        bulletin:  transformedBulletin.version,
+      });
+    }).catch(err => {
+      console.error('API fetch failed, using hardcoded fallback:', err);
+      setApiLoaded(true);
+    });
+  }, []);
+
+  // ── Use API data when available, fall back to hardcoded constants ──────────
+  const COUNTRIES     = apiCountries || COUNTRIES_FALLBACK;
+  const HTS           = apiChapters  || HTS_FALLBACK;
+  const RATE_BULLETIN = apiBulletin  || RATE_BULLETIN_FALLBACK;
 
   const country = COUNTRIES[selectedCountry];
 
@@ -252,6 +222,7 @@ export default function TariffCalculator() {
 
   const applyCountry = (key) => {
     const c = COUNTRIES[key];
+    if (!c) return;
     setSelectedCountry(key);
     setBaselineRate(String(c.b));
     if (key !== "china") setSection301Rate("0");
@@ -276,22 +247,21 @@ export default function TariffCalculator() {
     const s232    = parse(section232Rate) / 100;
     const cust    = parse(customTariff) / 100;
     if (val === 0) return null;
-    const mnfDuty  = cifVal * mnf;
-    const baseDuty = cifVal * base;
-    const s301Duty = cifVal * s301;
-    const s232Duty = cifVal * s232;
-    const custDuty = cifVal * cust;
+    const mnfDuty   = cifVal * mnf;
+    const baseDuty  = cifVal * base;
+    const s301Duty  = cifVal * s301;
+    const s232Duty  = cifVal * s232;
+    const custDuty  = cifVal * cust;
     const totalDuty = mnfDuty + baseDuty + s301Duty + s232Duty + custDuty;
-    const totalTariffPct = (mnf + base + s301 + s232 + cust) * 100;
     const totalLanded = val + freight + ins + totalDuty + broker + bond + other;
     return {
       val, qty, freight, ins, cifVal,
       mnfDuty, baseDuty, s301Duty, s232Duty, custDuty,
-      totalDuty, totalTariffPct,
+      totalDuty, totalTariffPct: (mnf + base + s301 + s232 + cust) * 100,
       broker, bond, other, totalLanded,
-      perUnit: qty > 1 ? totalLanded / qty : null,
-      effDutyPct: val > 0 ? (totalDuty / val) * 100 : 0,
-      multiplier: val > 0 ? totalLanded / val : 1,
+      perUnit:     qty > 1 ? totalLanded / qty : null,
+      effDutyPct:  val > 0 ? (totalDuty / val) * 100 : 0,
+      multiplier:  val > 0 ? totalLanded / val : 1,
     };
   }, [productValue, quantity, freightCost, insuranceRate, brokerFee, customsBond, otherFees,
       mnfRate, baselineRate, section301Rate, section232Rate, customTariff]);
@@ -313,6 +283,8 @@ export default function TariffCalculator() {
         </div>
         <div style={{ fontSize:10, color:C.htext, marginTop:3, fontFamily:"sans-serif" }}>
           Matthew Flanagan, CPSM · Flanagan Sourcing Intelligence Portfolio · {RATE_BULLETIN.version} · Rates verified {RATE_BULLETIN.lastVerified}
+          {apiLoaded && apiCountries && <span style={{ color:C.green, marginLeft:8 }}>● Live data</span>}
+          {apiLoaded && !apiCountries && <span style={{ color:C.amber, marginLeft:8 }}>● Using cached data</span>}
         </div>
       </div>
 
@@ -338,10 +310,7 @@ export default function TariffCalculator() {
             </div>
             <div style={{ marginTop:10, display:"flex", gap:12, flexWrap:"wrap" }}>
               {RATE_BULLETIN.sources.map((src, i) => (
-                <a key={i} href={src.url} target="_blank" rel="noopener noreferrer"
-                  style={{ fontSize:10, color:C.gold, fontFamily:"sans-serif" }}>
-                  {src.label} →
-                </a>
+                <a key={i} href={src.url} target="_blank" rel="noopener noreferrer" style={{ fontSize:10, color:C.gold, fontFamily:"sans-serif" }}>{src.label} →</a>
               ))}
             </div>
           </div>
@@ -351,7 +320,7 @@ export default function TariffCalculator() {
       {!showBulletin && (
         <div style={{ background:C.amberLight, borderBottom:`1px solid ${C.amber}`, padding:"6px 16px", cursor:"pointer" }} onClick={() => setShowBulletin(true)}>
           <div style={{ maxWidth:800, margin:"0 auto", fontSize:11, color:C.amber, fontFamily:"sans-serif" }}>
-            ⚠ Rates verified {RATE_BULLETIN.lastVerified} · Section 122 15% global baseline currently in effect · Click to show Rate Bulletin · Always verify at hts.usitc.gov
+            ⚠ Rates verified {RATE_BULLETIN.lastVerified} · Section 122 15% global baseline in effect · Click to show Rate Bulletin · Always verify at hts.usitc.gov
           </div>
         </div>
       )}
@@ -382,17 +351,15 @@ export default function TariffCalculator() {
         {activeTab==="product" && (
           <div>
             <InfoBox>
-              This calculator estimates the total landed cost of goods being <strong>imported into the United States</strong>. Select the country where your product is manufactured, look up the HTS chapter for your product, and the tool will pre-fill the applicable US import tariff rates.
+              This calculator estimates the total landed cost of goods being <strong>imported into the United States</strong>. Select the country where your product is manufactured, look up the HTS chapter, and the tool pre-fills applicable US import tariff rates.
             </InfoBox>
 
-            {/* HTS Lookup */}
-            <Card title="HTS Chapter Lookup" subtitle="Enter the first 2 digits of your HTS code to identify your product category and typical rates. Look up the full 10-digit code at hts.usitc.gov.">
+            <Card title="HTS Chapter Lookup" subtitle="Enter the first 2 digits of your HTS code. Click any row in the table to select that chapter.">
               <div style={{ marginBottom:12 }}>
                 <FieldLabel>HTS Chapter (first 2 digits)</FieldLabel>
                 <div style={{ display:"flex", alignItems:"center", gap:10, flexWrap:"wrap" }}>
                   <input value={htsInput} onChange={e => lookupHTS(e.target.value)}
-                    placeholder="e.g. 84, 85, 62, 72..."
-                    maxLength={10} style={{ ...inputSt, maxWidth:180 }} />
+                    placeholder="e.g. 84, 85, 62, 72..." maxLength={10} style={{ ...inputSt, maxWidth:180 }} />
                   <a href="https://hts.usitc.gov" target="_blank" rel="noopener noreferrer"
                     style={{ fontSize:11, color:C.navy, fontFamily:"sans-serif", textDecoration:"underline" }}>
                     Look up full 10-digit HTS code →
@@ -415,8 +382,7 @@ export default function TariffCalculator() {
                 </div>
               )}
 
-              {/* Chapter browser */}
-              <FieldLabel>Browse all 99 chapters:</FieldLabel>
+              <FieldLabel>Browse all chapters:</FieldLabel>
               <div style={{ overflowX:"auto", WebkitOverflowScrolling:"touch" }}>
                 <table style={{ width:"100%", borderCollapse:"collapse", fontSize:11, fontFamily:"sans-serif", minWidth:380 }}>
                   <thead>
@@ -444,8 +410,7 @@ export default function TariffCalculator() {
               </div>
             </Card>
 
-            {/* Country selector */}
-            <Card title="Country of Origin (Where goods are manufactured)" subtitle="Select the country where your product is made. Rates pre-fill based on current known US import tariff rates for that country.">
+            <Card title="Country of Origin (Where goods are manufactured)" subtitle="Select the country where your product is made. Baseline rates pre-fill on Tab 2.">
               <div style={{ display:"flex", gap:6, flexWrap:"wrap", marginBottom:10 }}>
                 {["All", ...REGIONS].map(r => (
                   <button key={r} onClick={() => setActiveRegion(r)} style={{
@@ -472,9 +437,7 @@ export default function TariffCalculator() {
                     <div style={{ flex:1 }}>
                       <div style={{ fontSize:13, fontWeight:"bold", color:selectedCountry===key?C.gold:C.navy, fontFamily:"sans-serif" }}>{c.l}</div>
                       <div style={{ fontSize:10, color:selectedCountry===key?C.htext:C.gray, fontFamily:"sans-serif" }}>
-                        Section 122 baseline: <strong>{c.b}%</strong>
-                        {c.usmca?" · USMCA qualifying goods: 0%":""}
-                        {!c.s122?" · Exempt from Section 122":""}
+                        Baseline: <strong>{c.b}%</strong>{c.usmca?" · USMCA qualifying may be 0%":""}
                       </div>
                     </div>
                     {selectedCountry===key && <span style={{ fontSize:11, color:C.gold, fontFamily:"sans-serif", fontWeight:"bold" }}>✓</span>}
@@ -488,8 +451,7 @@ export default function TariffCalculator() {
               )}
             </Card>
 
-            {/* Product value */}
-            <Card title="Shipment Details" subtitle="Enter invoice value and quantity for this shipment.">
+            <Card title="Shipment Details" subtitle="Commercial invoice value and quantity.">
               <div style={{ display:"flex", flexDirection:"column", gap:12 }}>
                 <div>
                   <FieldLabel>Commercial Invoice Value (USD total shipment value)</FieldLabel>
@@ -512,28 +474,29 @@ export default function TariffCalculator() {
             <div style={{ background:C.navy2, border:`1px solid ${C.gold}`, borderRadius:6, padding:"12px 14px", marginBottom:16 }}>
               <div style={{ fontSize:12, color:C.htext, fontFamily:"sans-serif", lineHeight:1.6, marginBottom:8 }}>
                 Rates pre-filled for <strong style={{ color:C.gold }}>{country?.f} {country?.l}</strong>
-                {htsSuggestion ? ` · Chapter ${htsSuggestion.chapter} (${htsSuggestion.d})` : ""}. All rates are editable. Every layer applies to the CIF value and stacks additively. <strong style={{ color:C.amber }}>Exception: Section 232 products are exempt from Section 122.</strong>
+                {htsSuggestion ? ` · Chapter ${htsSuggestion.chapter} (${htsSuggestion.d})` : ""}. All rates are editable. Every layer applies to the CIF value and stacks additively.
               </div>
               {htsSuggestion?.s2 && (
                 <div style={{ background:C.amberLight, border:`1px solid ${C.amber}`, borderRadius:4, padding:"6px 10px", fontSize:11, fontFamily:"sans-serif", color:C.amber }}>
-                  ⚠ This is a Section 232 product. Section 122 baseline does NOT stack with Section 232. Consider setting the baseline rate to 0% and using only the Section 232 rate. Verify with your customs broker.
+                  ⚠ Section 232 product. Section 122 baseline does NOT stack with Section 232. Consider setting baseline to 0%. Verify with your customs broker.
                 </div>
               )}
+              {country && <div style={{ marginTop:8, fontSize:11, color:C.amber, fontFamily:"sans-serif", background:C.amberLight, border:`1px solid ${C.amber}`, borderRadius:4, padding:"6px 10px" }}>{country.n}</div>}
             </div>
 
-            <Card title="US Import Tariff Rates — Goods Imported into the United States" subtitle="Enter as percentages. Applied to CIF value (invoice + freight + insurance).">
+            <Card title="US Import Tariff Rates" subtitle="Enter as percentages. Applied to CIF value (invoice + freight + insurance).">
               <div style={{ display:"flex", flexDirection:"column", gap:14 }}>
                 {[
                   { label:"MFN Base Duty Rate (%)", val:mnfRate, set:setMnfRate, color:C.navy,
-                    hint:`Standard WTO Most Favored Nation rate for your HTS code.${htsSuggestion?` Chapter ${htsSuggestion.chapter} range: ${htsSuggestion.ml}% to ${htsSuggestion.mh}%.`:""} Verify the exact rate for your 10-digit HTS code at hts.usitc.gov.` },
+                    hint:`Standard WTO rate for your HTS code.${htsSuggestion?` Chapter ${htsSuggestion.chapter} range: ${htsSuggestion.ml}% to ${htsSuggestion.mh}%.`:""} Verify exact rate at hts.usitc.gov.` },
                   { label:"Section 122 Baseline Tariff (%)", val:baselineRate, set:setBaselineRate, color:C.teal,
-                    hint:`Flat 15% surcharge on most US imports effective February 22, 2026. Temporary for 150 days (expires ~July 24, 2026). USMCA goods and Section 232 products are exempt.${country?.usmca?" This country qualifies for USMCA — qualifying goods should be 0%.":""}` },
+                    hint:`Flat 15% surcharge on most US imports effective February 22, 2026. Temporary for 150 days. USMCA goods and Section 232 products are exempt.${country?.usmca?" This country qualifies for USMCA — qualifying goods should be 0%.":""}` },
                   { label:"Section 301 Tariff — China origin only (%)", val:section301Rate, set:setSection301Rate, color:C.red,
-                    hint:htsSuggestion?.c?`Chapter ${htsSuggestion.chapter} typical rate: ${htsSuggestion.cr}%. Rates vary by specific HTS code. List 1/2: 25%, List 3/4A: 7.5%, some products up to 100%. Verify at ustr.gov.`:"Section 301 does not typically apply to this chapter or this country of origin." },
+                    hint:htsSuggestion?.c?`Chapter ${htsSuggestion.chapter} typical rate: ${htsSuggestion.cr}%. Rates vary by specific code. Verify at ustr.gov.`:"Section 301 does not typically apply to this chapter or country." },
                   { label:"Section 232 Tariff — Steel/Aluminum/Autos (%)", val:section232Rate, set:setSection232Rate, color:C.amber,
-                    hint:htsSuggestion?.s2?`Chapter ${htsSuggestion.chapter} is a Section 232 product. Rate is ${htsSuggestion.s2r}% for most countries. NOTE: Section 122 baseline does NOT stack with Section 232. Set baseline to 0% if Section 232 applies.`:"Section 232 does not apply to this chapter." },
+                    hint:htsSuggestion?.s2?`Chapter ${htsSuggestion.chapter} is a Section 232 product at ${htsSuggestion.s2r}%. Section 122 does NOT stack with Section 232. Set baseline to 0% if Section 232 applies.`:"Section 232 does not apply to this chapter." },
                   { label:"Additional / Custom Duty (%)", val:customTariff, set:setCustomTariff, color:C.gray,
-                    hint:"Antidumping duties (AD), countervailing duties (CVD), or any product-specific duty not captured above. Check for AD/CVD orders at enforcement.trade.gov." },
+                    hint:"Antidumping (AD), countervailing duties (CVD), or any product-specific duty. Check enforcement.trade.gov for AD/CVD orders." },
                 ].map((row, i) => (
                   <div key={i}>
                     <FieldLabel>{row.label}</FieldLabel>
@@ -543,9 +506,8 @@ export default function TariffCalculator() {
                 ))}
               </div>
 
-              {/* Total stacked rate */}
               <div style={{ marginTop:16, background:C.navy, borderRadius:4, padding:"12px 14px" }}>
-                <div style={{ fontSize:11, color:C.gold, fontFamily:"sans-serif", fontWeight:"bold", letterSpacing:1, marginBottom:6 }}>TOTAL STACKED TARIFF RATE (applied to CIF value)</div>
+                <div style={{ fontSize:11, color:C.gold, fontFamily:"sans-serif", fontWeight:"bold", letterSpacing:1, marginBottom:6 }}>TOTAL STACKED TARIFF RATE</div>
                 <div style={{ fontSize:28, fontWeight:"bold", fontFamily:"sans-serif", color:C.gold }}>
                   {fmtPct([mnfRate, baselineRate, section301Rate, section232Rate, customTariff].reduce((s,v) => s + parse(v), 0))}
                 </div>
@@ -555,13 +517,12 @@ export default function TariffCalculator() {
               </div>
             </Card>
 
-            {/* Rate reference guide */}
             <button onClick={() => setShowRateGuide(!showRateGuide)} style={{ background:C.navy2, border:`1px solid ${C.gold}`, borderRadius:4, padding:"10px 14px", fontSize:12, color:C.gold, fontFamily:"sans-serif", fontWeight:"bold", cursor:"pointer", width:"100%", marginBottom:16, textAlign:"left" }}>
-              {showRateGuide?"▾ Hide Country Rate Reference":"▸ Show Country Rate Reference — All Countries (Section 122 Rates as of March 2026)"}
+              {showRateGuide?"▾ Hide Country Rate Reference":"▸ Show Country Rate Reference"}
             </button>
 
             {showRateGuide && (
-              <Card title="Country Rate Reference" subtitle="Section 122 baseline rates as of March 2026. Click any row to select that country.">
+              <Card title="Country Rate Reference" subtitle="Section 122 baseline rates as of March 2026. Click any row to select.">
                 {REGIONS.map(region => {
                   const rc = Object.entries(COUNTRIES).filter(([k,c]) => c.r===region);
                   if (!rc.length) return null;
@@ -579,7 +540,7 @@ export default function TariffCalculator() {
                                   color:c.b>=25?C.red:c.b>=15?C.amber:c.b>0?C.teal:C.green }}>
                                   {c.usmca?"0% (USMCA)":c.b+"%"}
                                 </td>
-                                <td style={{ padding:"6px 8px", fontSize:10, color:C.gray }}>{c.n.slice(0,70)}...</td>
+                                <td style={{ padding:"6px 8px", fontSize:10, color:C.gray }}>{c.n.slice(0,60)}...</td>
                               </tr>
                             ))}
                           </tbody>
@@ -588,10 +549,6 @@ export default function TariffCalculator() {
                     </div>
                   );
                 })}
-                <div style={{ fontSize:10, color:C.gray, fontFamily:"sans-serif", marginTop:8 }}>
-                  Rates as of March 2026. Section 122 15% applies to most countries. Verify at{" "}
-                  <a href="https://ustr.gov" target="_blank" rel="noopener noreferrer" style={{ color:C.navy }}>ustr.gov</a>.
-                </div>
               </Card>
             )}
 
@@ -602,13 +559,13 @@ export default function TariffCalculator() {
         {/* ── TAB 3 ── */}
         {activeTab==="costs" && (
           <div>
-            <InfoBox>Enter the additional costs to complete the landed cost calculation. These are costs beyond the tariff to get the product to your US facility.</InfoBox>
+            <InfoBox>Enter additional costs to complete the landed cost calculation.</InfoBox>
             <Card title="Freight and Insurance">
               <div style={{ display:"flex", flexDirection:"column", gap:12 }}>
                 <div>
-                  <FieldLabel>Ocean / Air Freight (USD total for shipment)</FieldLabel>
+                  <FieldLabel>Ocean / Air Freight (USD total)</FieldLabel>
                   <DollarInput val={freightCost} set={setFreightCost} placeholder="e.g. 3500" />
-                  <div style={{ fontSize:11, color:C.gray, fontFamily:"sans-serif", marginTop:4 }}>Total freight cost from your freight forwarder quote. Freight + insurance = CIF value used as duty basis.</div>
+                  <div style={{ fontSize:11, color:C.gray, fontFamily:"sans-serif", marginTop:4 }}>Total freight cost. Freight + insurance = CIF value used as duty basis.</div>
                 </div>
                 <div>
                   <FieldLabel>Marine Insurance Rate (%)</FieldLabel>
@@ -620,9 +577,9 @@ export default function TariffCalculator() {
             <Card title="Customs and Compliance Fees">
               <div style={{ display:"flex", flexDirection:"column", gap:12 }}>
                 {[
-                  { l:"Customs Broker Fee (USD)", v:brokerFee, s:setBrokerFee, h:"Fee to prepare and file the customs entry. Typically $150 to $300 per shipment." },
+                  { l:"Customs Broker Fee (USD)", v:brokerFee,   s:setBrokerFee,   h:"Fee to prepare and file the customs entry. Typically $150 to $300 per shipment." },
                   { l:"Customs Bond (USD)",        v:customsBond, s:setCustomsBond, h:"Required for formal entries. Single-entry bond typically $50 to $100." },
-                  { l:"Other Fees (USD)",          v:otherFees, s:setOtherFees, h:"Port fees, ISF filing, container inspection, drayage, warehouse charges." },
+                  { l:"Other Fees (USD)",           v:otherFees,   s:setOtherFees,   h:"Port fees, ISF filing, container inspection, drayage, warehouse charges." },
                 ].map((row,i) => (
                   <div key={i}>
                     <FieldLabel>{row.l}</FieldLabel>
@@ -652,11 +609,11 @@ export default function TariffCalculator() {
                   </div>
                   <div style={{ display:"flex", gap:10, flexWrap:"wrap" }}>
                     {[
-                      { l:"TOTAL LANDED COST",   v:fmt(calc.totalLanded),                          hi:true },
-                      { l:"PER UNIT",             v:calc.perUnit?fmt(calc.perUnit):"—" },
-                      { l:"TOTAL DUTY PAID",      v:fmt(calc.totalDuty),                            col:"#F87171" },
-                      { l:"EFFECTIVE DUTY RATE",  v:fmtPct(calc.effDutyPct),                        col:calc.effDutyPct>30?"#F87171":calc.effDutyPct>15?"#FCD34D":"#6EE89A" },
-                      { l:"LANDED MULTIPLIER",    v:`${calc.multiplier.toFixed(3)}x` },
+                      { l:"TOTAL LANDED COST",  v:fmt(calc.totalLanded),                         hi:true },
+                      { l:"PER UNIT",            v:calc.perUnit?fmt(calc.perUnit):"—" },
+                      { l:"TOTAL DUTY PAID",     v:fmt(calc.totalDuty),                           col:"#F87171" },
+                      { l:"EFFECTIVE DUTY RATE", v:fmtPct(calc.effDutyPct),                       col:calc.effDutyPct>30?"#F87171":calc.effDutyPct>15?"#FCD34D":"#6EE89A" },
+                      { l:"LANDED MULTIPLIER",   v:`${calc.multiplier.toFixed(3)}x` },
                     ].map((item,i) => (
                       <div key={i} style={{ flex:1, minWidth:80, background:item.hi?"rgba(200,168,75,0.15)":"rgba(255,255,255,0.05)", border:item.hi?`1px solid ${C.gold}`:"none", borderRadius:4, padding:"10px 6px", textAlign:"center" }}>
                         <div style={{ fontSize:9, color:C.htext, fontFamily:"sans-serif", marginBottom:4 }}>{item.l}</div>
@@ -668,17 +625,17 @@ export default function TariffCalculator() {
 
                 <Card title="Cost Breakdown" subtitle="Each component as a share of total US landed cost.">
                   {[
-                    { l:"Invoice Value",     v:calc.val,      col:C.navy },
-                    { l:"Freight",           v:calc.freight,  col:C.teal },
-                    { l:"Insurance",         v:calc.ins,      col:"#4B7A8A" },
-                    { l:"MFN Base Duty",     v:calc.mnfDuty,  col:C.amber },
+                    { l:"Invoice Value",        v:calc.val,      col:C.navy },
+                    { l:"Freight",              v:calc.freight,  col:C.teal },
+                    { l:"Insurance",            v:calc.ins,      col:"#4B7A8A" },
+                    { l:"MFN Base Duty",        v:calc.mnfDuty,  col:C.amber },
                     { l:"Section 122 Baseline", v:calc.baseDuty, col:C.amber },
-                    { l:"Section 301",       v:calc.s301Duty, col:C.red },
-                    { l:"Section 232",       v:calc.s232Duty, col:C.red },
-                    { l:"Additional Duty",   v:calc.custDuty, col:C.red },
-                    { l:"Broker Fee",        v:calc.broker,   col:C.gray },
-                    { l:"Customs Bond",      v:calc.bond,     col:C.gray },
-                    { l:"Other Fees",        v:calc.other,    col:C.gray },
+                    { l:"Section 301",          v:calc.s301Duty, col:C.red },
+                    { l:"Section 232",          v:calc.s232Duty, col:C.red },
+                    { l:"Additional Duty",      v:calc.custDuty, col:C.red },
+                    { l:"Broker Fee",           v:calc.broker,   col:C.gray },
+                    { l:"Customs Bond",         v:calc.bond,     col:C.gray },
+                    { l:"Other Fees",           v:calc.other,    col:C.gray },
                   ].filter(r => r.v > 0).map((row,i) => {
                     const pct = (row.v / calc.totalLanded) * 100;
                     return (
@@ -709,7 +666,7 @@ export default function TariffCalculator() {
                         <tr style={{ background:C.navy }}>
                           <th style={{ padding:"8px", textAlign:"left", color:C.white, fontSize:11 }}>TARIFF LAYER</th>
                           <th style={{ padding:"8px", textAlign:"center", color:C.gold, fontSize:11 }}>RATE</th>
-                          <th style={{ padding:"8px", textAlign:"right", color:C.white, fontSize:11 }}>DUTY AMOUNT</th>
+                          <th style={{ padding:"8px", textAlign:"right", color:C.white, fontSize:11 }}>AMOUNT</th>
                         </tr>
                       </thead>
                       <tbody>
@@ -744,7 +701,7 @@ export default function TariffCalculator() {
                 <div style={{ background:C.navy2, border:`1px solid ${C.gold}`, borderRadius:6, padding:"14px 16px", marginBottom:16 }}>
                   <div style={{ fontSize:11, color:C.gold, fontFamily:"sans-serif", fontWeight:"bold", letterSpacing:1, marginBottom:6 }}>COMPARING SOURCING ALTERNATIVES</div>
                   <div style={{ fontSize:12, color:C.htext, fontFamily:"sans-serif", lineHeight:1.6 }}>
-                    Run this calculator separately for each country you are evaluating. Compare the landed cost multiplier and effective duty rate across countries. A supplier quoting 15% below your current price from a high-tariff country may cost more landed than a supplier at par from a low-tariff country. The landed cost multiplier is the clearest single number for comparison.
+                    Run this calculator for each country you are evaluating. Compare the landed cost multiplier and effective duty rate. A supplier quoting 15% below current price from a high-tariff country may cost more landed than a supplier at par from a low-tariff country.
                   </div>
                 </div>
 
